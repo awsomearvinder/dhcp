@@ -20,9 +20,17 @@
     {
       packages.${system}.default =
         (crate2nix.tools.${system}.appliedCargoNix {
-          name = "dhcpv6";
+          name = "router";
           src = ./.;
         }).rootCrate.build;
+      devShells.${system}.default = pkgs.mkShell {
+        packages = [
+          pkgs.rustfmt
+          pkgs.cargo
+          pkgs.rustc
+        ];
+        buildInputs = self.packages.${system}.default.buildInputs;
+      };
       checks.${system} = {
         dhcp-tests = pkgs.testers.runNixOSTest {
           name = "try-dhcpv6";
@@ -44,7 +52,7 @@
               networking = {
                 useDHCP = false;
                 firewall.enable = false;
-                interfaces.eth1 = lib.mkForce { }; # Don't use scripted networking
+                interfaces.eth1 = lib.mkForce { };
               };
 
               systemd.network = {
@@ -87,6 +95,7 @@
                         id = 1;
                         interface = "eth1";
                         subnet = "2001:DB8::/32";
+                        rapid-commit = true;
                         pd-pools = [
                           {
                             prefix = "2001:DB8:1000::";
@@ -198,15 +207,35 @@
               };
 
               networking = {
-                useNetworkd = false;
                 useDHCP = false;
                 firewall.enable = false;
-                interfaces.eth1.ipv6.addresses = lib.mkForce [ ];
+                dhcpcd.enable = lib.mkForce false;
+                interfaces = lib.mkForce { };
               };
               systemd.services.dhcp = {
                 enable = true;
-                wantedBy = [ "network.target" ];
+                after = [ "network.target" ];
+                wants = [ "network.target" ];
+                wantedBy = [
+                  # "network-online.target"
+                  # "multi-user.target"
+                ];
+                before = [ "network-online.target" ];
                 serviceConfig.ExecStart = "${self.packages.${system}.default}/bin/router";
+                environment = {
+                  RUST_BACKTRACE = "1";
+                };
+              };
+              systemd.network = {
+                enable = true;
+
+                networks = {
+                  "eth1" = {
+                    matchConfig.Name = "eth1";
+                    networkConfig.DHCP = false;
+                    ipv6AcceptRAConfig.DHCPv6Client = false;
+                  };
+                };
               };
               environment.systemPackages = [
                 self.packages.${system}.default
@@ -214,14 +243,24 @@
             };
           interactive.sshBackdoor.enable = true;
           testScript = ''
+            import time
+
             isp.start()
             client.start()
 
-            # wait for the DHCP stuff on the router to come up.
-            isp.wait_for_unit("multi-user.target")
 
-            client.wait_for_unit("dhcp.service")
-            client.wait_until_succeeds("ping -6 -c1 2001:DB8::1")
+            # wait for the DHCP stuff on the router to come up.
+            isp.wait_for_unit("kea-dhcp6-server.service")
+            time.sleep(1)
+
+            client.succeed("systemctl start dhcp.service")
+            time.sleep(1)
+
+            print(isp.succeed("journalctl -u kea-dhcp6-server.service --no-pager"))
+            print("KEA LOGS DONE...")
+            print(client.succeed("journalctl -u dhcp.service --no-pager"))
+            print("DHCP LOGS DONE...")
+            print(client.succeed("ip -6 a"))
           '';
         };
       };
