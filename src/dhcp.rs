@@ -1,6 +1,6 @@
 use std::net::Ipv6Addr;
 
-pub mod decoder;
+pub mod codec;
 
 pub const ALL_DHCP_RELAY_AGENTS_AND_SERVERS: Ipv6Addr =
     Ipv6Addr::new(0xff02, 0x0, 0, 0, 0, 0, 0x01, 0x02);
