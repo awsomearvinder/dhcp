@@ -30,12 +30,6 @@ struct DhcpClientWriteActor {
         tokio::sync::oneshot::Sender<(dhcproto::v6::Message, std::net::SocketAddrV6)>,
     )>,
     rx: tokio::sync::mpsc::Receiver<DhcpActorMsg>,
-    id: std::sync::Mutex<
-        HashMap<
-            [u8; 3],
-            tokio::sync::oneshot::Sender<(dhcproto::v6::Message, std::net::SocketAddr)>,
-        >,
-    >,
 }
 
 impl DhcpClientWriteActor {
@@ -55,7 +49,6 @@ impl DhcpClientWriteActor {
             rx,
             sink,
             sub_channel: sub_channel_tx,
-            id: std::sync::Mutex::new(HashMap::new()),
         })
     }
     pub fn run(mut self) {
