@@ -1,6 +1,6 @@
-use std::net::SocketAddrV6;
+use std::net::{Ipv6Addr, SocketAddrV6};
 
-use dhcproto::v6::MessageType;
+use dhcproto::v6::{DhcpOption, DhcpOptions, IAPrefix, MessageType};
 use nix::{net::if_::InterfaceFlags, sys::socket::SockaddrLike};
 
 #[tokio::main]
@@ -38,7 +38,23 @@ async fn main() {
             router::client::DhcpClient::new(addr, Vec::from(rand::random::<[u8; 16]>()))
                 .await
                 .unwrap();
-        let options = vec![];
+        let options = vec![
+            DhcpOption::ElapsedTime(0),
+            DhcpOption::IAPD(dhcproto::v6::IAPD {
+                id: 0,
+                t1: 0,
+                t2: 0,
+                opts: vec![DhcpOption::IAPrefix(IAPrefix {
+                    preferred_lifetime: 0,
+                    valid_lifetime: 0,
+                    prefix_len: 64,
+                    prefix_ip: Ipv6Addr::UNSPECIFIED,
+                    opts: DhcpOptions::new(),
+                })]
+                .into_iter()
+                .collect(),
+            }),
+        ];
         let resp = client.solicit(options.into_iter().collect()).await;
         assert!(resp.msg_type() == MessageType::Advertise);
 
