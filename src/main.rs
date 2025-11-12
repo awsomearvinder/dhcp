@@ -57,7 +57,7 @@ async fn main() {
         ];
         let mut resps = client.solicit(options.into_iter().collect()).await;
 
-        while let Some((resp, addr)) = resps.recv().await {
+        while let Some((resp, _addr)) = resps.recv().await {
             assert!(resp.msg_type() == MessageType::Advertise);
             eprintln!("{}", resp);
         }
