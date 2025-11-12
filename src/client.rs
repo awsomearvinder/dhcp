@@ -6,7 +6,7 @@ use std::{
 
 mod error;
 
-use crate::dhcp::codec::DhcpV6Codec;
+use crate::dhcp::{Server, codec::DhcpV6Codec};
 use futures::{FutureExt as _, SinkExt, StreamExt};
 use rand::Rng;
 use tokio_util::udp::UdpFramed;

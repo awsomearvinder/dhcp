@@ -3,6 +3,7 @@ use std::net::{Ipv6Addr, SocketAddrV6};
 use dhcproto::v6::{DhcpOption, DhcpOptions, IAPrefix, MessageType};
 use futures::FutureExt as _;
 use nix::{net::if_::InterfaceFlags, sys::socket::SockaddrLike};
+use router::dhcp::Server;
 
 async fn choose_advertisement(
     resps: &mut tokio::sync::mpsc::Receiver<(dhcproto::v6::Message, SocketAddrV6)>,
@@ -112,6 +113,9 @@ async fn main() {
             eprintln!("Failed to get a advertise...");
             return;
         };
+
+        let server = Server::from_msg(&advertise, addr).expect("No Server Id Found");
+        dbg!(server);
         clients.push(client);
         eprintln!("les gooo");
     }
