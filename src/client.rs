@@ -64,8 +64,10 @@ impl DhcpClientWriteActor {
     pub async fn handle_msg(&mut self, msg: DhcpActorMsg) {
         match msg {
             DhcpActorMsg::Solicit(message, sender) => {
-                let (tx, mut resp_recvr) = tokio::sync::mpsc::channel(10);
-                self.sub_channel.send((message.xid(), tx)).await.unwrap();
+                self.sub_channel
+                    .send((message.xid(), sender))
+                    .await
+                    .unwrap();
                 eprintln!("Sending solicit");
                 self.sink
                     .send((
@@ -78,10 +80,6 @@ impl DhcpClientWriteActor {
                     .await
                     .unwrap();
                 eprintln!("sent solicit!");
-                while let Some(resp) = resp_recvr.recv().await {
-                    eprintln!("response: {:?}", resp);
-                    sender.send(resp).await.unwrap();
-                }
             }
             DhcpActorMsg::Stop => unreachable!(), // This is already handled by the calling loop.
                                                   // `handle_msg` is not called in this case.
