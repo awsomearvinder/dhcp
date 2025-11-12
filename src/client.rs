@@ -17,7 +17,6 @@ enum DhcpActorMsg {
         dhcproto::v6::Message,
         tokio::sync::mpsc::Sender<(dhcproto::v6::Message, SocketAddrV6)>,
     ),
-    Stop,
 }
 
 struct DhcpClientWriteActor {
@@ -59,7 +58,7 @@ impl DhcpClientWriteActor {
                 let msg = self.rx.recv().await;
 
                 match msg {
-                    Some(DhcpActorMsg::Stop) | None => return,
+                    None => return,
                     Some(msg) => self.handle_msg(msg).await,
                 }
             }
@@ -85,8 +84,6 @@ impl DhcpClientWriteActor {
                     .unwrap();
                 eprintln!("sent solicit!");
             }
-            DhcpActorMsg::Stop => unreachable!(), // This is already handled by the calling loop.
-                                                  // `handle_msg` is not called in this case.
         }
     }
 }
@@ -178,11 +175,6 @@ impl DhcpClientReadActor {
 }
 
 /// A DhcpClient bound to a specific address.
-/// This DhcpClient is just a handle to a tokio worker.
-/// Call `stop` before drop runs. Although drop does
-/// not cause misbehavior, it will cause bad performance due
-/// to blocking the event loop until the background tokio
-/// task is dropped.
 /// The DHCP Client fills in client ID on your behalf. This
 /// is the *only* thing it fullfills, and aside from guaranteeing
 /// you get a response with a matching transaction ID, no further guarantees
@@ -223,24 +215,5 @@ impl DhcpClient {
             .await
             .expect("failed to send SOLICIT over channel");
         rx
-    }
-    pub async fn stop(self) {
-        self.tx.send(DhcpActorMsg::Stop).await.unwrap();
-        // So the drop implementation doesn't try to close it again.
-        // Wait for the channel to completely close.
-        self.tx.closed().await;
-    }
-}
-impl Drop for DhcpClient {
-    fn drop(&mut self) {
-        if !self.tx.is_closed() {
-            eprintln!("Dropped a DHCP Client. This is highly likely to be buggy behavior.");
-            eprintln!("Please report:");
-            eprintln!("{}", Backtrace::capture());
-            let tx = self.tx.clone();
-            tokio::spawn(async move {
-                tx.send(DhcpActorMsg::Stop).await.unwrap();
-            });
-        }
     }
 }
