@@ -57,7 +57,11 @@ impl DhcpClientWriteActor {
         tokio::spawn(async move {
             loop {
                 let msg = self.rx.recv().await;
-                self.handle_msg(msg.unwrap()).await;
+
+                match msg {
+                    Some(DhcpActorMsg::Stop) | None => return,
+                    Some(msg) => self.handle_msg(msg).await,
+                }
             }
         });
     }
