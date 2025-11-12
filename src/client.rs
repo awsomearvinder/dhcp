@@ -1,5 +1,4 @@
 use std::{
-    backtrace::Backtrace,
     collections::HashMap,
     net::{SocketAddr, SocketAddrV6},
 };
