@@ -15,7 +15,7 @@ use tokio_util::udp::UdpFramed;
 enum DhcpActorMsg {
     Solicit(
         dhcproto::v6::Message,
-        tokio::sync::oneshot::Sender<dhcproto::v6::Message>,
+        tokio::sync::mpsc::Sender<(dhcproto::v6::Message, SocketAddrV6)>,
     ),
     Stop,
 }
@@ -27,7 +27,7 @@ struct DhcpClientWriteActor {
     >,
     sub_channel: tokio::sync::mpsc::Sender<(
         [u8; 3],
-        tokio::sync::oneshot::Sender<(dhcproto::v6::Message, std::net::SocketAddrV6)>,
+        tokio::sync::mpsc::Sender<(dhcproto::v6::Message, std::net::SocketAddrV6)>,
     )>,
     rx: tokio::sync::mpsc::Receiver<DhcpActorMsg>,
 }
@@ -64,7 +64,7 @@ impl DhcpClientWriteActor {
     pub async fn handle_msg(&mut self, msg: DhcpActorMsg) {
         match msg {
             DhcpActorMsg::Solicit(message, sender) => {
-                let (tx, resp_recvr) = tokio::sync::oneshot::channel();
+                let (tx, mut resp_recvr) = tokio::sync::mpsc::channel(10);
                 self.sub_channel.send((message.xid(), tx)).await.unwrap();
                 eprintln!("Sending solicit");
                 self.sink
@@ -78,10 +78,10 @@ impl DhcpClientWriteActor {
                     .await
                     .unwrap();
                 eprintln!("sent solicit!");
-                let (resp, addr) = resp_recvr.await.unwrap();
-
-                eprintln!("response: {:?}", resp);
-                sender.send(resp).unwrap();
+                while let Some(resp) = resp_recvr.recv().await {
+                    eprintln!("response: {:?}", resp);
+                    sender.send(resp).await.unwrap();
+                }
             }
             DhcpActorMsg::Stop => unreachable!(), // This is already handled by the calling loop.
                                                   // `handle_msg` is not called in this case.
@@ -95,11 +95,11 @@ struct DhcpClientReadActor {
     stream: futures::stream::SplitStream<tokio_util::udp::UdpFramed<DhcpV6Codec>>,
     subscribers: HashMap<
         [u8; 3],
-        tokio::sync::oneshot::Sender<(dhcproto::v6::Message, std::net::SocketAddrV6)>,
+        tokio::sync::mpsc::Sender<(dhcproto::v6::Message, std::net::SocketAddrV6)>,
     >,
     subscribe_channel: tokio::sync::mpsc::Receiver<(
         [u8; 3],
-        tokio::sync::oneshot::Sender<(dhcproto::v6::Message, std::net::SocketAddrV6)>,
+        tokio::sync::mpsc::Sender<(dhcproto::v6::Message, std::net::SocketAddrV6)>,
     )>,
 }
 
@@ -108,7 +108,7 @@ impl DhcpClientReadActor {
         stream: futures::stream::SplitStream<tokio_util::udp::UdpFramed<DhcpV6Codec>>,
         subscribe_channel: tokio::sync::mpsc::Receiver<(
             [u8; 3],
-            tokio::sync::oneshot::Sender<(dhcproto::v6::Message, std::net::SocketAddrV6)>,
+            tokio::sync::mpsc::Sender<(dhcproto::v6::Message, std::net::SocketAddrV6)>,
         )>,
     ) -> Self {
         Self {
@@ -131,7 +131,7 @@ impl DhcpClientReadActor {
                     next_dhcp_msg_fut = Box::pin(incoming_dhcp_msg_stream.next().fuse());
                     match dhcp_msg {
                         Some(Ok((msg, addr))) => {
-                            let Some((_xid, channel)) = subscribers.remove_entry(&msg.xid()) else {
+                            let Some(channel) = subscribers.get_mut(&msg.xid()) else {
                                 eprintln!("Got message without corresponding transaction ID: {}", msg);
                                 continue;
                             };
@@ -140,7 +140,15 @@ impl DhcpClientReadActor {
                             };
 
                             eprintln!("got a message! {msg}");
-                            channel.send((msg, addr)).unwrap();
+
+                            // send the message, otherwise remove the entry from the map because
+                            // the receiver is no longer subscribed if the receiving channel has
+                            // been dropped.
+                            let xid = msg.xid();
+                            let Ok(_) = channel.send((msg, addr)).await else {
+                                subscribers.remove_entry(&xid);
+                                continue;
+                            };
                         }
                         Some(Err(e)) => {
                             eprintln!("{}", e);
@@ -197,18 +205,21 @@ impl DhcpClient {
             rng: rng,
         })
     }
-    pub async fn solicit(&mut self, opts: dhcproto::v6::DhcpOptions) -> dhcproto::v6::Message {
+    pub async fn solicit(
+        &mut self,
+        opts: dhcproto::v6::DhcpOptions,
+    ) -> tokio::sync::mpsc::Receiver<(dhcproto::v6::Message, SocketAddrV6)> {
         let mut options = dhcproto::v6::DhcpOptions::new();
         options.insert(dhcproto::v6::DhcpOption::ClientId(self.client_id.clone()));
         let options = options.into_iter().chain(opts).collect();
         let mut msg = dhcproto::v6::Message::new(dhcproto::v6::MessageType::Solicit);
         msg.set_xid(self.rng.random()).set_opts(options);
-        let (tx, rx) = tokio::sync::oneshot::channel();
+        let (tx, rx) = tokio::sync::mpsc::channel(10);
         self.tx
             .send(DhcpActorMsg::Solicit(msg, tx))
             .await
             .expect("failed to send solicit over channel");
-        rx.await.unwrap()
+        rx
     }
     pub async fn stop(self) {
         self.tx.send(DhcpActorMsg::Stop).await.unwrap();

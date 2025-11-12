@@ -55,10 +55,13 @@ async fn main() {
                 .collect(),
             }),
         ];
-        let resp = client.solicit(options.into_iter().collect()).await;
-        assert!(resp.msg_type() == MessageType::Advertise);
+        let mut resps = client.solicit(options.into_iter().collect()).await;
 
-        eprintln!("{}", resp);
+        while let Some((resp, addr)) = resps.recv().await {
+            assert!(resp.msg_type() == MessageType::Advertise);
+            eprintln!("{}", resp);
+        }
+
         clients.push(client);
         eprintln!("les gooo");
     }
