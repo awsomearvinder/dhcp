@@ -216,7 +216,7 @@ impl DhcpClient {
         self.tx
             .send(DhcpActorMsg::Solicit(msg, tx))
             .await
-            .expect("failed to send solicit over channel");
+            .expect("failed to send SOLICIT over channel");
         rx
     }
     pub async fn stop(self) {
