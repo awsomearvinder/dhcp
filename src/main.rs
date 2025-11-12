@@ -1,6 +1,6 @@
 use std::net::{Ipv6Addr, SocketAddrV6};
 
-use dhcproto::v6::{DhcpOption, DhcpOptions, IAPrefix, MessageType};
+use dhcproto::v6::{DhcpOption, DhcpOptions, IAPrefix, MessageType, OptionCode};
 use futures::FutureExt as _;
 use nix::{net::if_::InterfaceFlags, sys::socket::SockaddrLike};
 use router::dhcp::Server;
@@ -115,7 +115,16 @@ async fn main() {
         };
 
         let server = Server::from_msg(&advertise, addr).expect("No Server Id Found");
-        dbg!(server);
+
+        let Some(req_iapd) = advertise.opts().get(OptionCode::IAPD) else {
+            panic!("Server didn't give us an IAPD...");
+        };
+
+        let mut req_opts = DhcpOptions::new();
+        req_opts.insert(req_iapd.clone());
+
+        let resp = client.request(&server, req_opts).await;
+        dbg! {resp};
         clients.push(client);
         eprintln!("les gooo");
     }

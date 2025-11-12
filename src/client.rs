@@ -16,6 +16,11 @@ enum DhcpActorMsg {
         dhcproto::v6::Message,
         tokio::sync::mpsc::Sender<(dhcproto::v6::Message, SocketAddrV6)>,
     ),
+    Request(
+        dhcproto::v6::Message,
+        SocketAddrV6,
+        tokio::sync::mpsc::Sender<(dhcproto::v6::Message, SocketAddrV6)>,
+    ),
 }
 
 struct DhcpClientWriteActor {
@@ -82,6 +87,16 @@ impl DhcpClientWriteActor {
                     .await
                     .unwrap();
                 eprintln!("sent solicit!");
+            }
+            DhcpActorMsg::Request(message, addr, sender) => {
+                self.sub_channel
+                    .send((message.xid(), sender))
+                    .await
+                    .unwrap();
+                self.sink
+                    .send((message, SocketAddr::V6(addr)))
+                    .await
+                    .unwrap();
             }
         }
     }
@@ -214,5 +229,30 @@ impl DhcpClient {
             .await
             .expect("failed to send SOLICIT over channel");
         rx
+    }
+
+    pub async fn request(
+        &mut self,
+        server: &Server,
+        opts: dhcproto::v6::DhcpOptions,
+    ) -> Option<dhcproto::v6::Message> {
+        let mut options = dhcproto::v6::DhcpOptions::new();
+        options.insert(dhcproto::v6::DhcpOption::ClientId(self.client_id.clone()));
+        options.insert(dhcproto::v6::DhcpOption::ServerId(server.id.clone()));
+        let options = options.into_iter().chain(opts).collect();
+        let (sender, mut recvr) = tokio::sync::mpsc::channel(1);
+        let mut msg = dhcproto::v6::Message::new(dhcproto::v6::MessageType::Request);
+        msg.set_xid(self.rng.random()).set_opts(options);
+        self.tx
+            .send(DhcpActorMsg::Request(msg, server.addr.clone(), sender))
+            .await
+            .expect("Failed to send REQUEST over the channel.");
+
+        while let Some((msg, addr)) = recvr.recv().await {
+            if addr == server.addr {
+                return Some(msg);
+            }
+        }
+        None
     }
 }
