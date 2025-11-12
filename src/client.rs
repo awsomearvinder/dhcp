@@ -131,6 +131,7 @@ impl DhcpClientReadActor {
                         Some(Ok((msg, addr))) => {
                             let Some(channel) = subscribers.get_mut(&msg.xid()) else {
                                 eprintln!("Got message without corresponding transaction ID: {}", msg);
+                                eprintln!("No longer listening?");
                                 continue;
                             };
                             let SocketAddr::V6(addr) = addr else {

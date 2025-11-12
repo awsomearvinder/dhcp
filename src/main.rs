@@ -1,8 +1,48 @@
 use std::net::{Ipv6Addr, SocketAddrV6};
 
 use dhcproto::v6::{DhcpOption, DhcpOptions, IAPrefix, MessageType};
+use futures::FutureExt as _;
 use nix::{net::if_::InterfaceFlags, sys::socket::SockaddrLike};
 
+async fn choose_advertisement(
+    resps: &mut tokio::sync::mpsc::Receiver<(dhcproto::v6::Message, SocketAddrV6)>,
+    timeout_token: tokio_util::sync::CancellationToken,
+) -> Option<(dhcproto::v6::Message, SocketAddrV6)> {
+    let mut chosen_pref = 0;
+    let mut chosen_advertise = None;
+    let advertise_chooser_loop = async {
+        while let Some((resp, addr)) = resps.recv().await {
+            if resp.msg_type() != MessageType::Advertise {
+                eprintln!("Expected Advertise... got {:?}", resp.msg_type());
+                eprintln!("Ignoring...");
+                continue;
+            }
+            eprintln!("{}", resp);
+            let options = resp.opts();
+            let Some(dhcproto::v6::DhcpOption::Preference(pref)) =
+                options.get(dhcproto::v6::OptionCode::Preference)
+            else {
+                eprintln!("Failed to get DHCP Preference option... continuing.");
+                if chosen_advertise == None {
+                    chosen_advertise = Some((resp, addr));
+                }
+                continue;
+            };
+            if *pref > chosen_pref {
+                chosen_pref = *pref;
+                chosen_advertise = Some((resp, addr));
+            }
+        }
+    };
+    futures::select! {
+        _ = std::pin::pin!(timeout_token.cancelled().fuse()) => {
+            return chosen_advertise;
+        }
+        _ = std::pin::pin!(advertise_chooser_loop.fuse()) => {
+            unreachable!() // this should listen forever, until we're done looking for advertisements...
+        }
+    }
+}
 #[tokio::main]
 async fn main() {
     let mut clients = vec![];
@@ -57,11 +97,21 @@ async fn main() {
         ];
         let mut resps = client.solicit(options.into_iter().collect()).await;
 
-        while let Some((resp, _addr)) = resps.recv().await {
-            assert!(resp.msg_type() == MessageType::Advertise);
-            eprintln!("{}", resp);
-        }
+        let response_timeout_tok = tokio_util::sync::CancellationToken::new();
 
+        tokio::spawn({
+            let response_timeout_tok = response_timeout_tok.clone();
+            async move {
+                tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+                response_timeout_tok.cancel();
+            }
+        });
+        let chosen_advertise = choose_advertisement(&mut resps, response_timeout_tok.clone()).await;
+        eprintln!("No longer listening for ADVERTISEMENT.");
+        let Some((advertise, addr)) = chosen_advertise else {
+            eprintln!("Failed to get a advertise...");
+            return;
+        };
         clients.push(client);
         eprintln!("les gooo");
     }
