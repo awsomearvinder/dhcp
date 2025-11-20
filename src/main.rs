@@ -24,7 +24,7 @@ async fn choose_advertisement(
                 options.get(dhcproto::v6::OptionCode::Preference)
             else {
                 eprintln!("Failed to get DHCP Preference option... continuing.");
-                if chosen_advertise == None {
+                if chosen_advertise.is_none() {
                     chosen_advertise = Some((resp, addr));
                 }
                 continue;
