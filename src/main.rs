@@ -37,7 +37,7 @@ async fn choose_advertisement(
     };
     futures::select! {
         _ = std::pin::pin!(timeout_token.cancelled().fuse()) => {
-            return chosen_advertise;
+            chosen_advertise
         }
         _ = std::pin::pin!(advertise_chooser_loop.fuse()) => {
             unreachable!() // this should listen forever, until we're done looking for advertisements...
