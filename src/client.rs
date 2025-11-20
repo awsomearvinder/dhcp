@@ -240,7 +240,7 @@ impl DhcpClient {
         let mut msg = dhcproto::v6::Message::new(dhcproto::v6::MessageType::Request);
         msg.set_xid(self.rng.random()).set_opts(options);
         self.tx
-            .send(DhcpActorMsg::Request(msg, server.addr.clone(), sender))
+            .send(DhcpActorMsg::Request(msg, server.addr, sender))
             .await
             .expect("Failed to send REQUEST over the channel.");
 
