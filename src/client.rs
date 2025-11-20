@@ -208,11 +208,7 @@ impl DhcpClient {
         let client = DhcpClientWriteActor::new(addr, rx).await?;
         client.run();
         let rng = rand::rng();
-        Ok(Self {
-            tx,
-            client_id,
-            rng: rng,
-        })
+        Ok(Self { tx, client_id, rng })
     }
     pub async fn solicit(
         &mut self,
