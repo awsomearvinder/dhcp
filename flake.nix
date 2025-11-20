@@ -27,6 +27,7 @@
         packages = [
           pkgs.rustfmt
           pkgs.cargo
+          pkgs.clippy
           pkgs.rustc
         ];
         buildInputs = self.packages.${system}.default.buildInputs;
