@@ -129,5 +129,4 @@ async fn main() {
         eprintln!("les gooo");
     }
     eprintln!("Hello, world!");
-    loop {}
 }
