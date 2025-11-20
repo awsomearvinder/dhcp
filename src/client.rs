@@ -135,13 +135,13 @@ impl DhcpClientReadActor {
         let mut subscribe_channel = self.subscribe_channel;
         let mut subscribers = self.subscribers;
 
-        let mut next_dhcp_msg_fut = Box::pin(incoming_dhcp_msg_stream.next().fuse());
+        let mut next_dhcp_msg = Box::pin(incoming_dhcp_msg_stream.next().fuse());
         let mut next_sub = Box::pin(subscribe_channel.recv().fuse());
 
         loop {
             futures::select! {
-                dhcp_msg = next_dhcp_msg_fut => {
-                    next_dhcp_msg_fut = Box::pin(incoming_dhcp_msg_stream.next().fuse());
+                dhcp_msg = next_dhcp_msg => {
+                    next_dhcp_msg = Box::pin(incoming_dhcp_msg_stream.next().fuse());
                     match dhcp_msg {
                         Some(Ok((msg, addr))) => {
                             let Some(channel) = subscribers.get_mut(&msg.xid()) else {
