@@ -10,17 +10,12 @@ use futures::{FutureExt as _, SinkExt, StreamExt};
 use rand::Rng;
 use tokio_util::udp::UdpFramed;
 
+type MessageSender = tokio::sync::mpsc::Sender<(dhcproto::v6::Message, std::net::SocketAddrV6)>;
+
 #[derive(Debug)]
 enum DhcpActorMsg {
-    Solicit(
-        dhcproto::v6::Message,
-        tokio::sync::mpsc::Sender<(dhcproto::v6::Message, SocketAddrV6)>,
-    ),
-    Request(
-        dhcproto::v6::Message,
-        SocketAddrV6,
-        tokio::sync::mpsc::Sender<(dhcproto::v6::Message, SocketAddrV6)>,
-    ),
+    Solicit(dhcproto::v6::Message, MessageSender),
+    Request(dhcproto::v6::Message, SocketAddrV6, MessageSender),
 }
 
 struct DhcpClientWriteActor {
@@ -28,10 +23,7 @@ struct DhcpClientWriteActor {
         tokio_util::udp::UdpFramed<DhcpV6Codec>,
         (dhcproto::v6::Message, std::net::SocketAddr),
     >,
-    sub_channel: tokio::sync::mpsc::Sender<(
-        [u8; 3],
-        tokio::sync::mpsc::Sender<(dhcproto::v6::Message, std::net::SocketAddrV6)>,
-    )>,
+    sub_channel: tokio::sync::mpsc::Sender<([u8; 3], MessageSender)>,
     rx: tokio::sync::mpsc::Receiver<DhcpActorMsg>,
 }
 
@@ -106,23 +98,14 @@ impl DhcpClientWriteActor {
 /// is subscribed to a message of that transaction ID.
 struct DhcpClientReadActor {
     stream: futures::stream::SplitStream<tokio_util::udp::UdpFramed<DhcpV6Codec>>,
-    subscribers: HashMap<
-        [u8; 3],
-        tokio::sync::mpsc::Sender<(dhcproto::v6::Message, std::net::SocketAddrV6)>,
-    >,
-    subscribe_channel: tokio::sync::mpsc::Receiver<(
-        [u8; 3],
-        tokio::sync::mpsc::Sender<(dhcproto::v6::Message, std::net::SocketAddrV6)>,
-    )>,
+    subscribers: HashMap<[u8; 3], MessageSender>,
+    subscribe_channel: tokio::sync::mpsc::Receiver<([u8; 3], MessageSender)>,
 }
 
 impl DhcpClientReadActor {
     fn new(
         stream: futures::stream::SplitStream<tokio_util::udp::UdpFramed<DhcpV6Codec>>,
-        subscribe_channel: tokio::sync::mpsc::Receiver<(
-            [u8; 3],
-            tokio::sync::mpsc::Sender<(dhcproto::v6::Message, std::net::SocketAddrV6)>,
-        )>,
+        subscribe_channel: tokio::sync::mpsc::Receiver<([u8; 3], MessageSender)>,
     ) -> Self {
         Self {
             stream,
